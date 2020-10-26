@@ -1,0 +1,18 @@
+{
+  "name": "eth-transaction-index",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "@hyperdivision/eth-transaction-tail": "^4.1.0",
+    "hyperbee": "0.0.18",
+    "hypercore": "^9.5.7",
+    "nanoeth": "^2.6.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
