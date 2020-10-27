@@ -13,7 +13,7 @@ const to = '0x61BAFA4a54F236289F0605Cf4917aD92117A4780'
 
 const eth = new Nanoeth('https://ropsten.infura.io/v3/2aa3f1f44c224eff83b07cef6a5b48b5')
 
-let since = 8952756
+let since = 8958600
 
 const t = new Tail(null, {
   eth,
@@ -32,16 +32,28 @@ const t = new Tail(null, {
   }
 })
 
-head().then(console.log)
+head().then(async () => {
+  track(to)
+  t.start()
+  await catchup(100)
+  console.log('caught up')
+})
 
-// track(to)
-// t.start()
 
 async function head () {
   for await (const { value } of db.createHistoryStream({ reverse: true, limit: 1 })) {
     return value.blockNumber
   }
   return eth.blockNumber()
+}
+
+async function catchup (minBehind) {
+  let tip = await eth.blockNumber()
+  do {
+    await sleep(1000)
+    console.log(tip, since)
+    tip = await eth.blockNumber()
+  } while (tip - since > minBehind)
 }
 
 async function track (addr) {
@@ -70,4 +82,8 @@ function padTxNumber (n) {
 
 function padBlockNumber (n) {
   return n.slice(2).padStart(12, '0')
+}
+
+function sleep (n) {
+  return new Promise(resolve => setTimeout(resolve, n))
 }
