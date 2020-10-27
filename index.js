@@ -9,7 +9,7 @@ const db = new Hyperbee(feed, {
   keyEncoding: 'utf-8'
 })
 
-const to = '0x61BAFA4a54F236289F0605Cf4917aD92117A4780'
+const to = '0x50c7d91e74B0E42BD8bcE8AD6d199E4a23c0b193'
 
 const eth = new Nanoeth('https://ropsten.infura.io/v3/2aa3f1f44c224eff83b07cef6a5b48b5')
 
@@ -24,6 +24,7 @@ const t = new Tail(null, {
   },
   async transaction (tx) {
     if (!(await db.get('!addrs!' + tx.to))) return
+    console.log('transaction', tx)
     return db.put(txKey(tx), tx)
   },
   checkpoint (seq) {
@@ -32,13 +33,10 @@ const t = new Tail(null, {
   }
 })
 
-head().then(async () => {
-  track(to)
-  t.start()
-  await catchup(100)
-  console.log('caught up')
-})
-
+head().then(console.log)
+track(to)
+t.start()
+catchup(100).then(() => { console.log('caught up')})
 
 async function head () {
   for await (const { value } of db.createHistoryStream({ reverse: true, limit: 1 })) {
