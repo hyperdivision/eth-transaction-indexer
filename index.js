@@ -46,12 +46,11 @@ async function head () {
 }
 
 async function catchup (minBehind) {
-  let tip = await eth.blockNumber()
-  do {
+  let tip = Number(await eth.blockNumber())
+  while (tip - since > minBehind) {
     await sleep(1000)
-    console.log(tip, since)
-    tip = await eth.blockNumber()
-  } while (tip - since > minBehind)
+    tip = Number(await eth.blockNumber()) 
+  }
 }
 
 async function track (addr) {
