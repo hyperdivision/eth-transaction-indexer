@@ -13,6 +13,5 @@ index.start(since).then(() => {
   index.add(to)
 
   const str = index.createTransactionStream(to)
-  console.log(str)
   str.on('data', d => console.log('-- data --', d))
 })
