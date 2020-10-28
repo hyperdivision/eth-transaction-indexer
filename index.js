@@ -39,6 +39,21 @@ module.exports = class EthIndexer {
             blockNumber: val.value.blockNumber,
             value: val.value.initialBalance
           })
+
+          const str = this.db.createReadStream({ gt, lte })
+            .on('data', data => { tr.push(data.value) })
+            .on('end', () => {
+              this.streams.upsert(address).add(live)
+
+              tr._read(() => {
+                live.resume()
+              })
+
+              live.on('data', (data) => {
+                if (!tr.push(data)) live.pause()
+              })
+            })
+
           cb(null)
         })
       },
@@ -46,20 +61,6 @@ module.exports = class EthIndexer {
         live.destroy()
       }
     })
-
-    const str = this.db.createReadStream({ gt, lte })
-      .on('data', data => { tr.push(data.value) })
-      .on('end', () => {
-        this.streams.upsert(address).add(live)
-
-        tr._read(() => {
-          live.resume()
-        })
-
-        live.on('data', (data) => {
-          if (!tr.push(data)) live.pause()
-        })
-      })
 
     return tr
   }
