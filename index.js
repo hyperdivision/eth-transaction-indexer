@@ -26,43 +26,10 @@ module.exports = class EthIndexer {
 
     const address = addr.toLowerCase()
 
-    const gt = padKey('!tx!' + address + '!')
-    const lte = padKey('!tx!' + address + '"')
+    const txns = new TxStream(this.db, address, { live: true })
+    this.streams.upsert(addr).add(txns)
 
-    const live = new Readable({})
-    const tr = new Readable({
-      open (cb) {
-        promiseCallback(self.db.get('!addrs!' + address), (err, val) => {
-          if (err) return cb(err)
-
-          this.push({
-            blockNumber: val.value.blockNumber,
-            value: val.value.initialBalance
-          })
-
-          const str = this.db.createReadStream({ gt, lte })
-            .on('data', data => { tr.push(data.value) })
-            .on('end', () => {
-              this.streams.upsert(address).add(live)
-
-              tr._read(() => {
-                live.resume()
-              })
-
-              live.on('data', (data) => {
-                if (!tr.push(data)) live.pause()
-              })
-            })
-
-          cb(null)
-        })
-      },
-      destroy () {
-        live.destroy()
-      }
-    })
-
-    return tr
+    return txns
   }
 
   async add (addr) {
@@ -92,7 +59,7 @@ module.exports = class EthIndexer {
 
         if (self.streams.has(addr)) {
           for (let str of self.streams.get(addr)) {
-            str.push(tx)
+            str.pushLive(tx)
           }
         }
       },
@@ -136,6 +103,69 @@ module.exports = class EthIndexer {
       const balance = await self.eth.getBalance(addr, from)
 
       await self.db.put('!addrs!' + id, { date: Date.now(), blockNumber: from, initialBalance: balance })
+    })
+  }
+}
+
+class TxStream extends Readable {
+  constructor (db, addr, opts) {
+    super()
+
+    this.live = opts.live
+    this.addr = addr
+    this.pending = []
+    this.db = db
+    this.live = !!opts.live
+  }
+  
+  pushLive (data) {
+    if (this.pending) this.pending.push(data)
+    else this.push(data)
+  }
+  
+  _read (cb) {
+    if (this.stream) this.stream.resume()
+    cb(null)
+  }
+  
+  _open (cb) {
+    const self = this
+    promiseCallback(this.db.get('!addrs!' + this.addr), (err, val) => {
+      if (err) return cb(err)
+
+      self.push({
+        blockNumber: val.value.blockNumber,
+        value: val.value.initialBalance
+      })
+
+      const gt = padKey('!tx!' + self.addrs + '!')
+      const lt = padKey('!tx!' + self.addrs + '"')
+
+      self.stream = self.db.createReadStream({ gt, lt })
+      
+      let lastKey = ''
+      self.stream.on('data', (data) => {
+        lastKey = data.key
+        if (!self.push(data)) self.stream.pause()
+      })
+      
+      self.stream.on('end', () => {
+        self.stream = null
+
+        if (!self.live) {
+          self.push(null) // end it now
+          return
+        }
+
+        while (self.pending.length) {
+          const next = self.pending.shift()
+          if (lastKey < txKey(next)) continue // we already emitted this
+          self.push(next)
+        }
+        self.pending = null
+      })
+
+      cb(null)
     })
   }
 }
