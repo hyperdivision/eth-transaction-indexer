@@ -56,7 +56,7 @@ module.exports = class EthIndexer {
         const addr = tx.to.toLowerCase()
 
         if (!(await self.db.get('!addrs!' + addr))) return
-        self.db.put(txKey(tx), tx)
+        await self.db.put(txKey(tx), tx)
 
         if (self.streams.has(addr)) {
           for (let str of self.streams.get(addr)) {
