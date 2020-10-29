@@ -29,6 +29,7 @@ module.exports = class EthIndexer {
     const txns = new TxStream(this.db, address, { live: true })
     this.streams.upsert(addr).add(txns)
 
+    txns.on('close', () => this.streams.get(addr).delete(txns))
     return txns
   }
 
@@ -65,11 +66,10 @@ module.exports = class EthIndexer {
       },
       async checkpoint (seq) {
         self.since = seq
-        console.log('checkpoint:', seq)
       }
     })
 
-    this.tail.start()
+    return this.tail.start()
   }
 
   async _head () {
