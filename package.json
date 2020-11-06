@@ -6,10 +6,14 @@
   "dependencies": {
     "@hyperdivision/eth-transaction-tail": "^4.1.0",
     "hyperbee": "0.0.18",
-    "hypercore": "^9.5.7",
-    "nanoeth": "^2.6.0"
+    "nanoeth": "^2.6.0",
+    "streamx": "^2.7.1",
+    "thunky": "^1.1.0",
+    "upsert-map": "^1.0.1"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "hypercore": "^9.6.0"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
