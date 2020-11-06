@@ -2,16 +2,24 @@ const Nanoeth = require('nanoeth/http')
 const Tail = require('@hyperdivision/eth-transaction-tail')
 const Hyperbee = require('hyperbee')
 const { Readable } = require('streamx')
+const thunky = require('thunky/promise')
 const UpsertMap = require('upsert-map')
 
 const promiseCallback = (p, cb) => p.then(data => cb(null, data), cb)
 
 module.exports = class EthIndexer {
-  constructor (endpoint, feed) {
+  constructor (endpoint, feed, defaultSeq) {
+    const self = this
+
     this.since = null
     this.eth = new Nanoeth(endpoint)
     this.tail = null
-    
+
+    this.ready = thunky(async () => {
+      const head = await this._head()
+      self.since = Math.max(head, defaultSeq)
+    })
+
     this.feed = feed
     this.db = new Hyperbee(this.feed, {
       valueEncoding: 'json',
@@ -34,15 +42,15 @@ module.exports = class EthIndexer {
   }
 
   async add (addr) {
+    await this.ready()
     await this._catchup(90)
     await this._track(addr)
   }
 
-  async start (defaultSeq) {
+  async start () {
     const self = this
 
-    const head = await this._head()
-    this.since = Math.max(head, defaultSeq)
+    await this.ready()
 
     this.tail = new Tail(null, {
       eth: self.eth,
@@ -85,13 +93,15 @@ module.exports = class EthIndexer {
     let tip = Number(await this.eth.blockNumber())
     while (tip - this.since > minBehind) {
       await sleep(1000)
-      tip = Number(await this.eth.blockNumber()) 
+      tip = Number(await this.eth.blockNumber())
     }
   }
 
   async _track (addr) {
     const self = this
     const id = addr.toLowerCase()
+
+    await this.ready()
 
     this.tail.wait(async function () {
       if (await self.db.get('!addrs!' + id)) return
@@ -105,6 +115,17 @@ module.exports = class EthIndexer {
       await self.db.put('!addrs!' + id, { date: Date.now(), blockNumber: from, initialBalance: balance })
     })
   }
+
+  async stop () {
+    await this.tail.stop(true)
+
+    for (let [addr, streams] of this.streams) {
+      for (let stream of streams) {
+        await stream.destroy()
+        this.streams.get(addr).delete(stream)
+      }
+    }
+  }
 }
 
 class TxStream extends Readable {
@@ -117,17 +138,17 @@ class TxStream extends Readable {
     this.db = db
     this.live = !!opts.live
   }
-  
+
   pushLive (data) {
     if (this.pending) this.pending.push(data)
     else this.push(data)
   }
-  
+
   _read (cb) {
     if (this.stream) this.stream.resume()
     cb(null)
   }
-  
+
   _open (cb) {
     const self = this
     promiseCallback(this.db.get('!addrs!' + this.addr), (err, val) => {
@@ -142,13 +163,13 @@ class TxStream extends Readable {
       const lt = '!tx!' + self.addrs + '"'
 
       self.stream = self.db.createReadStream({ gt, lt })
-      
+
       let lastKey = ''
       self.stream.on('data', (data) => {
         lastKey = data.key
         if (!self.push(data)) self.stream.pause()
       })
-      
+
       self.stream.on('end', () => {
         self.stream = null
 
