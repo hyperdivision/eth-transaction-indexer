@@ -138,8 +138,8 @@ class TxStream extends Readable {
         value: val.value.initialBalance
       })
 
-      const gt = padKey('!tx!' + self.addrs + '!')
-      const lt = padKey('!tx!' + self.addrs + '"')
+      const gt = '!tx!' + self.addrs + '!'
+      const lt = '!tx!' + self.addrs + '"'
 
       self.stream = self.db.createReadStream({ gt, lt })
       
@@ -180,10 +180,6 @@ function padTxNumber (n) {
 
 function padBlockNumber (n) {
   return n.slice(2).padStart(12, '0')
-}
-
-function padKey (key) {
-  return key.padEnd(68, '\u0000')
 }
 
 function sleep (n) {
