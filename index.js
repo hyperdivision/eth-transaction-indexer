@@ -9,15 +9,13 @@ const promiseCallback = (p, cb) => p.then(data => cb(null, data), cb)
 
 module.exports = class EthIndexer {
   constructor (endpoint, feed, defaultSeq) {
-    const self = this
-
     this.since = null
     this.eth = new Nanoeth(endpoint)
     this.tail = null
 
     this.ready = thunky(async () => {
       const head = await this._head()
-      self.since = Math.max(head, defaultSeq)
+      this.since = Math.max(head, defaultSeq)
     })
 
     this.feed = feed
@@ -56,7 +54,7 @@ module.exports = class EthIndexer {
       eth: self.eth,
       since: self.since,
       async filter (addr) {
-        let address = addr ? addr.toLowerCase() : ''
+        const address = addr ? addr.toLowerCase() : ''
         const node = await self.db.get('!addrs!' + address)
         return node !== null
       },
@@ -67,7 +65,7 @@ module.exports = class EthIndexer {
         await self.db.put(txKey(tx), tx)
 
         if (self.streams.has(addr)) {
-          for (let str of self.streams.get(addr)) {
+          for (const str of self.streams.get(addr)) {
             str.pushLive(tx)
           }
         }
@@ -117,10 +115,11 @@ module.exports = class EthIndexer {
   }
 
   async stop () {
+    await this.ready()
     await this.tail.stop(true)
 
-    for (let [addr, streams] of this.streams) {
-      for (let stream of streams) {
+    for (const [addr, streams] of this.streams) {
+      for (const stream of streams) {
         await stream.destroy()
         this.streams.get(addr).delete(stream)
       }
