@@ -61,11 +61,13 @@ module.exports = class EthIndexer {
         const node = await self.db.get('!addrs!' + address)
         return node !== null
       },
-      async transaction (tx) {
+      async transaction (tx, _, block) {
         const addr = tx.to.toLowerCase()
 
         if (!(await self.db.get('!addrs!' + addr))) return
+
         await self.db.put(txKey(tx), tx)
+        await self.db.put(blockKey(block), blockHeader(block))
 
         if (self.streams.has(addr)) {
           for (const str of self.streams.get(addr)) {
@@ -120,6 +122,9 @@ module.exports = class EthIndexer {
       }
 
       await self.db.put('!addrs!' + id, entry)
+
+      const startBlock = await self.tail.getBlockByNumber(from)
+      await self.db.put(blockKey(from), blockHeader(startBlock))
     })
   }
 
@@ -159,12 +164,16 @@ class TxStream extends Readable {
 
   _open (cb) {
     const self = this
-    promiseCallback(this.db.get('!addrs!' + this.addr), (err, val) => {
+    promiseCallback(this.db.get('!addrs!' + this.addr), async (err, val) => {
       if (err) return cb(err)
 
+      const blockNumber = val.value.blockNumber
+      const block = await self.db.get(blockKey(blockNumber))
+
       self.push({
-        blockNumber: val.value.blockNumber,
-        value: val.value.initialBalance
+        blockNumber,
+        value: val.value.initialBalance,
+        timestamp: block.value.timestamp
       })
 
       const gt = '!tx!' + self.addrs + '!'
@@ -205,12 +214,25 @@ function txKey (tx) {
   return '!tx!' + tx.to.toLowerCase() + '!' + padBlockNumber(tx.blockNumber) + '!' + padTxNumber(tx.transactionIndex)
 }
 
+function blockKey (seq) {
+  return '!block!' + padBlockNumber(seq)
+}
+
 function padTxNumber (n) {
   return n.slice(2).padStart(8, '0')
 }
 
 function padBlockNumber (n) {
+  console.log(n)
   return n.slice(2).padStart(12, '0')
+}
+
+function blockHeader (block) {
+  const obj = {}
+  for (let key of Object.keys(block)) {
+    if (key !== 'transactions') obj[key] = block[key]
+  }
+  return obj
 }
 
 function sleep (n) {
