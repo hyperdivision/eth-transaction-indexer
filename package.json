@@ -1,10 +1,10 @@
 {
-  "name": "eth-transaction-index",
-  "version": "1.0.0",
+  "name": "@hyperdivision/eth-transaction-index",
+  "version": "0.0.0",
   "description": "",
   "main": "index.js",
   "dependencies": {
-    "@hyperdivision/eth-transaction-tail": "^4.1.0",
+    "@hyperdivision/eth-transaction-tail": "^4.2.1",
     "hyperbee": "0.0.18",
     "nanoeth": "^2.6.0",
     "streamx": "^2.7.1",

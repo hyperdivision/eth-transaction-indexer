@@ -8,15 +8,24 @@ const UpsertMap = require('upsert-map')
 const promiseCallback = (p, cb) => p.then(data => cb(null, data), cb)
 
 module.exports = class EthIndexer {
-  constructor (endpoint, feed, defaultSeq) {
-    this.since = null
-    this.eth = new Nanoeth(endpoint)
-    this.tail = null
+  constructor (feed, defaultSeq, opts = {}) {
+    if (typeof defaultSeq === 'object') return new EthIndexer(feed, undefined, defaultSeq)
 
-    this.ready = thunky(async () => {
-      const head = await this._head()
-      this.since = Math.max(head, defaultSeq)
-    })
+    this.since = null
+    this.live = opts.live || false
+
+    this.tail = null
+    this.eth = null
+    this.ready = null
+
+    if (this.live) {
+      this.eth = new Nanoeth(opts.endpoint)
+
+      this.ready = thunky(async () => {
+        const head = await this._head()
+        this.since = Math.max(head, defaultSeq)
+      })
+    }
 
     this.feed = feed
     this.db = new Hyperbee(this.feed, {
@@ -40,6 +49,8 @@ module.exports = class EthIndexer {
   }
 
   async add (addr) {
+    if (!this.live) throw new Error('Replicated index cannot access live methods')
+
     await this.ready()
 
     if ((await this.db.get('!addrs!' + addr))) return
@@ -49,6 +60,7 @@ module.exports = class EthIndexer {
   }
 
   async start () {
+    if (!this.live) throw new Error('Replicated index cannot access live methods')
     const self = this
 
     await this.ready()
@@ -84,6 +96,7 @@ module.exports = class EthIndexer {
   }
 
   async _head () {
+    if (!this.live) throw new Error('Replicated index cannot access live methods')
     for await (const { value } of this.db.createHistoryStream({ reverse: true, limit: 1 })) {
       return value.blockNumber
     }
@@ -91,6 +104,7 @@ module.exports = class EthIndexer {
   }
 
   async _catchup (minBehind) {
+    if (!this.live) throw new Error('Replicated index cannot access live methods')
     if (this.since === null) throw new Error('Tailer has not started')
 
     let tip = Number(await this.eth.blockNumber())
@@ -101,6 +115,8 @@ module.exports = class EthIndexer {
   }
 
   async _track (addr) {
+    if (!this.live) throw new Error('Replicated index cannot access live methods')
+
     const self = this
     const id = addr.toLowerCase()
 
@@ -129,6 +145,8 @@ module.exports = class EthIndexer {
   }
 
   async stop () {
+    if (!this.live) throw new Error('Replicated index cannot access live methods')
+
     await this.ready()
     await this.tail.stop(true)
 
