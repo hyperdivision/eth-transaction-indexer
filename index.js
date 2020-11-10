@@ -41,6 +41,9 @@ module.exports = class EthIndexer {
 
   async add (addr) {
     await this.ready()
+
+    if ((await this.db.get('!addrs!' + addr))) return
+
     await this._catchup(90)
     await this._track(addr)
   }
@@ -101,7 +104,7 @@ module.exports = class EthIndexer {
 
     await this.ready()
 
-    this.tail.wait(async function () {
+    return this.tail.asyncWait(async function () {
       if (await self.db.get('!addrs!' + id)) return
 
       const hei = Number(await self.eth.blockNumber())
@@ -110,7 +113,13 @@ module.exports = class EthIndexer {
       const from = '0x' + Math.max(0, self.since - 1).toString(16)
       const balance = await self.eth.getBalance(addr, from)
 
-      await self.db.put('!addrs!' + id, { date: Date.now(), blockNumber: from, initialBalance: balance })
+      const entry = {
+        date: Date.now(),
+        blockNumber: from,
+        initialBalance: balance
+      }
+
+      await self.db.put('!addrs!' + id, entry)
     })
   }
 
@@ -183,6 +192,8 @@ class TxStream extends Readable {
           self.push(next)
         }
         self.pending = null
+
+        self.emit('synced')
       })
 
       cb(null)
