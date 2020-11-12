@@ -13,9 +13,7 @@ module.exports = class EthIndexer {
     this.live = opts.endpoint ? true : false
 
     this.tail = null
-    this.eth = null
-
-    if (this.live) this.eth = new Nanoeth(opts.endpoint)
+    this.eth = this.live ? new Nanoeth(opts.endpoint) : null
 
     this.ready = thunky(async () => {
       if (this.live) return
