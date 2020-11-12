@@ -14,13 +14,15 @@ const Indexer = require('eth-transaction-indexer')
 const testnet = 'https://ropsten.infura.io/v3/2aa3f1f44c224eff83b07cef6a5b48b5'
 const feed = new hypercore('./path/to/storage')
 
-const index = new Indexer(feed, testnet)
-
 // start indexing from block number
 const beginAt = 0x899b00
 
+const index = new Indexer(feed, {
+  endpoint: testnet
+})
+
 // start the indexer
-index.start(beginAt)
+index.start()
 
 // add an address to the index
 index.add('0xdea..dbeef')
@@ -33,9 +35,15 @@ for await (let tx of txns) console.log(tx)
 
 ## API
 
-#### `const index = new Indexer(feed, endpoint, defaultSeq)`
+#### `const index = new Indexer(feed, opts)`
 
 Instantiate a new index. Transactions of interest are logged in a Hyperbee written to the hypercore passed in as `feed`. `endpoint` should be an Ethereum HTTP API. `defaultSeq` gives the block number from which to start indexing from.
+
+```js
+const opts = {
+  endpoint: 'http://...',  // chain backend API
+}
+```
 
 #### `index.start([defaultSeq])`
 
