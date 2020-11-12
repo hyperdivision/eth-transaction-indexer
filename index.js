@@ -8,11 +8,9 @@ const UpsertMap = require('upsert-map')
 const promiseCallback = (p, cb) => p.then(data => cb(null, data), cb)
 
 module.exports = class EthIndexer {
-  constructor (feed, defaultSeq, opts = {}) {
-    if (typeof defaultSeq === 'object') return new EthIndexer(feed, undefined, defaultSeq)
-
+  constructor (feed, opts = {}) {
     this.since = null
-    this.live = opts.live || false
+    this.live = opts.endpoint ? true : false
 
     this.tail = null
     this.eth = null
@@ -22,8 +20,9 @@ module.exports = class EthIndexer {
       this.eth = new Nanoeth(opts.endpoint)
 
       this.ready = thunky(async () => {
+        const seq = opts.defaultSeq || 0
         const head = await this._head()
-        this.since = Math.max(head, defaultSeq)
+        this.since = Math.max(head, seq)
       })
     }
 
@@ -53,7 +52,7 @@ module.exports = class EthIndexer {
 
     await this.ready()
 
-    if ((await this.db.get('!addrs!' + addr))) return
+    if (await this.db.get('!addrs!' + addr.toLowerCase())) return
 
     await this._catchup(90)
     await this._track(addr)
@@ -79,7 +78,7 @@ module.exports = class EthIndexer {
         if (!(await self.db.get('!addrs!' + addr))) return
 
         await self.db.put(txKey(tx), tx)
-        await self.db.put(blockKey(block), blockHeader(block))
+        await self.db.put(blockKey(block.number), blockHeader(block))
 
         if (self.streams.has(addr)) {
           for (const str of self.streams.get(addr)) {
@@ -122,7 +121,7 @@ module.exports = class EthIndexer {
 
     await this.ready()
 
-    return this.tail.asyncWait(async function () {
+    return this.tail.wait(async function () {
       if (await self.db.get('!addrs!' + id)) return
 
       const hei = Number(await self.eth.blockNumber())
@@ -194,13 +193,16 @@ class TxStream extends Readable {
         timestamp: block.value.timestamp
       })
 
-      const gt = '!tx!' + self.addrs + '!'
-      const lt = '!tx!' + self.addrs + '"'
+      const gt = '!tx!' + self.addr + '!'
+      const lt = '!tx!' + self.addr + '"'
 
-      self.stream = self.db.createReadStream({ gt, lt })
+      const { seq } = await self.db.peek()
+      self.stream = self.db.createHistoryStream({ gte: seq, live: true, limit: -1 })
 
       let lastKey = ''
       self.stream.on('data', (data) => {
+        if (!filter(data.key)) return
+
         lastKey = data.key
         if (!self.push(data)) self.stream.pause()
       })
@@ -225,6 +227,10 @@ class TxStream extends Readable {
 
       cb(null)
     })
+
+    function filter (a) {
+      return a.slice(0, 46) === '!tx!' + self.addr.toLowerCase()
+    }
   }
 }
 
@@ -241,7 +247,6 @@ function padTxNumber (n) {
 }
 
 function padBlockNumber (n) {
-  console.log(n)
   return n.slice(2).padStart(12, '0')
 }
 
