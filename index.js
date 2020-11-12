@@ -14,17 +14,14 @@ module.exports = class EthIndexer {
 
     this.tail = null
     this.eth = null
-    this.ready = null
 
-    if (this.live) {
-      this.eth = new Nanoeth(opts.endpoint)
+    if (this.live) this.eth = new Nanoeth(opts.endpoint)
 
-      this.ready = thunky(async () => {
-        const seq = opts.defaultSeq || 0
-        const head = await this._head()
-        this.since = Math.max(head, seq)
-      })
-    }
+    this.ready = thunky(async () => {
+      if (this.live) return
+      const seq = opts.defaultSeq || 0
+      this.since = Math.max(await this._head(), seq)
+    })
 
     this.feed = feed
     this.db = new Hyperbee(this.feed, {
