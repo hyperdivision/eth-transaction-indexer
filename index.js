@@ -26,20 +26,13 @@ module.exports = class EthIndexer {
       valueEncoding: 'json',
       keyEncoding: 'utf-8'
     })
-
-    this.streams = new UpsertMap(() => new Set(), set => !set.size)
   }
 
   createTransactionStream (addr) {
     const self = this
-
     const address = addr.toLowerCase()
 
-    const txns = new TxStream(this.db, address, { live: true })
-    this.streams.upsert(addr).add(txns)
-
-    txns.on('close', () => this.streams.get(addr).delete(txns))
-    return txns
+    return new TxStream(this.db, address, { live: true })
   }
 
   async add (addr) {
@@ -74,12 +67,6 @@ module.exports = class EthIndexer {
 
         await self.db.put(txKey(tx), tx)
         await self.db.put(blockKey(block.number), blockHeader(block))
-
-        if (self.streams.has(addr)) {
-          for (const str of self.streams.get(addr)) {
-            str.pushLive(tx)
-          }
-        }
       },
       async checkpoint (seq) {
         self.since = seq
@@ -143,13 +130,12 @@ module.exports = class EthIndexer {
 
     await this.ready()
     await this.tail.stop(true)
-
-    for (const [addr, streams] of this.streams) {
-      for (const stream of streams) {
-        await stream.destroy()
-        this.streams.get(addr).delete(stream)
-      }
-    }
+    return new Promise((resolve, reject) => {
+      this.feed.close(err => {
+        if (err) reject(err)
+        else resolve()
+      })
+    })
   }
 }
 
@@ -159,14 +145,8 @@ class TxStream extends Readable {
 
     this.live = opts.live
     this.addr = addr
-    this.pending = []
     this.db = db
     this.live = !!opts.live
-  }
-
-  pushLive (data) {
-    if (this.pending) this.pending.push(data)
-    else this.push(data)
   }
 
   _read (cb) {
@@ -191,13 +171,13 @@ class TxStream extends Readable {
       const gt = '!tx!' + self.addr + '!'
       const lt = '!tx!' + self.addr + '"'
 
-      let tip
+      let tip = 0
       let lastKey = ''
 
       self.stream = self.db.createReadStream({ gt, lt })
 
       self.stream.on('data', (data) => {
-        tip = data.seq
+        tip = Math.max(tip, data.seq)
         lastKey = data.key
         if (!self.push(data)) self.stream.pause()
       })
@@ -216,13 +196,6 @@ class TxStream extends Readable {
     })
 
     function liveStream (start) {
-      while (self.pending.length) {
-        const next = self.pending.shift()
-        if (lastKey < txKey(next)) continue // we already emitted this
-        self.push(next)
-      }
-
-      self.pending = null
       self.emit('synced')
 
       self.stream = self.db.createHistoryStream({ gt: start, live: true, limit: -1 })
@@ -235,6 +208,11 @@ class TxStream extends Readable {
     function filter (a) {
       return a.slice(0, 46) === '!tx!' + self.addr.toLowerCase()
     }
+  }
+
+  _destroy (cb) {
+    if (this.stream) this.stream.destroy()
+    cb()
   }
 }
 
