@@ -16,7 +16,7 @@ module.exports = class EthIndexer {
     this.eth = this.live ? new Nanoeth(opts.endpoint) : null
 
     this.ready = thunky(async () => {
-      if (this.live) return
+      if (!this.live) return
       const seq = opts.defaultSeq || 0
       this.since = Math.max(await this._head(), seq)
     })
@@ -191,37 +191,46 @@ class TxStream extends Readable {
       const gt = '!tx!' + self.addr + '!'
       const lt = '!tx!' + self.addr + '"'
 
-      const { seq } = await self.db.peek()
-      self.stream = self.db.createHistoryStream({ gte: seq, live: true, limit: -1 })
-
+      let tip
       let lastKey = ''
-      self.stream.on('data', (data) => {
-        if (!filter(data.key)) return
 
+      self.stream = self.db.createReadStream({ gt, lt })
+
+      self.stream.on('data', (data) => {
+        tip = data.seq
         lastKey = data.key
         if (!self.push(data)) self.stream.pause()
       })
 
       self.stream.on('end', () => {
-        self.stream = null
-
         if (!self.live) {
           self.push(null) // end it now
+          self.emit('synced')
           return
         }
 
-        while (self.pending.length) {
-          const next = self.pending.shift()
-          if (lastKey < txKey(next)) continue // we already emitted this
-          self.push(next)
-        }
-        self.pending = null
-
-        self.emit('synced')
+        liveStream(tip)
       })
 
       cb(null)
     })
+
+    function liveStream (start) {
+      while (self.pending.length) {
+        const next = self.pending.shift()
+        if (lastKey < txKey(next)) continue // we already emitted this
+        self.push(next)
+      }
+
+      self.pending = null
+      self.emit('synced')
+
+      self.stream = self.db.createHistoryStream({ gt: start, live: true, limit: -1 })
+      self.stream.on('data', (data) => {
+        if (!filter(data.key)) return
+        if (!self.push(data)) self.stream.pause()
+      })
+    }
 
     function filter (a) {
       return a.slice(0, 46) === '!tx!' + self.addr.toLowerCase()
