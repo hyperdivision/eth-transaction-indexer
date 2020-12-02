@@ -3,14 +3,13 @@ const Tail = require('@hyperdivision/eth-transaction-tail')
 const Hyperbee = require('hyperbee')
 const { Readable } = require('streamx')
 const thunky = require('thunky/promise')
-const UpsertMap = require('upsert-map')
 
 const promiseCallback = (p, cb) => p.then(data => cb(null, data), cb)
 
 module.exports = class EthIndexer {
   constructor (feed, opts = {}) {
     this.since = null
-    this.live = opts.endpoint ? true : false
+    this.live = !!opts.endpoint
 
     this.tail = null
     this.eth = this.live ? new Nanoeth(opts.endpoint) : null
@@ -29,7 +28,6 @@ module.exports = class EthIndexer {
   }
 
   createTransactionStream (addr) {
-    const self = this
     const address = addr.toLowerCase()
 
     return new TxStream(this.db, address, { live: true })
@@ -172,13 +170,11 @@ class TxStream extends Readable {
       const lt = '!tx!' + self.addr + '"'
 
       let tip = 0
-      let lastKey = ''
 
       self.stream = self.db.createReadStream({ gt, lt })
 
       self.stream.on('data', (data) => {
         tip = Math.max(tip, data.seq)
-        lastKey = data.key
         if (!self.push(data)) self.stream.pause()
       })
 
@@ -234,7 +230,7 @@ function padBlockNumber (n) {
 
 function blockHeader (block) {
   const obj = {}
-  for (let key of Object.keys(block)) {
+  for (const key of Object.keys(block)) {
     if (key !== 'transactions') obj[key] = block[key]
   }
   return obj

@@ -3,7 +3,7 @@
 Tails transactions on the Ethereum blockchain
 
 ```
-npm install @hyperdivision/eth-transaction-tail
+npm install @hyperdivision/eth-transaction-indexer
 ```
 
 ## Usage

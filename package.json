@@ -8,8 +8,7 @@
     "hyperbee": "0.0.18",
     "nanoeth": "^2.6.0",
     "streamx": "^2.7.1",
-    "thunky": "^1.1.0",
-    "upsert-map": "^1.0.1"
+    "thunky": "^1.1.0"
   },
   "devDependencies": {
     "hypercore": "^9.6.0"
