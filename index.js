@@ -47,6 +47,8 @@ module.exports = class EthIndexer {
   async start () {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
     const self = this
+    let batch = null
+    let lastBlock = null
 
     await this.ready()
 
@@ -63,10 +65,20 @@ module.exports = class EthIndexer {
 
         if (!(await self.db.get('!addrs!' + addr))) return
 
-        await self.db.put(txKey(tx), tx)
-        await self.db.put(blockKey(block.number), blockHeader(block))
+        if (!batch) batch = self.db.batch()
+        await batch.put(txKey(tx), tx)
+
+        const key = blockKey(block.number)
+        if (lastBlock === key) continue
+
+        lastBlock = key
+        await batch.put(key, blockHeader(block))
       },
       async checkpoint (seq) {
+        if (batch) {
+          await batch.flush()
+          batch = null
+        }
         self.since = seq
       }
     })
@@ -96,30 +108,30 @@ module.exports = class EthIndexer {
   async _track (addr) {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
 
-    const self = this
-    const id = addr.toLowerCase()
+    const k = addrKey(addr)
 
     await this.ready()
 
-    return this.tail.wait(async function () {
-      if (await self.db.get('!addrs!' + id)) return
+    return this.tail.wait(async () => {
+      if (await this.db.get(k)) return
 
-      const hei = Number(await self.eth.blockNumber())
-      if (hei - self.since > 100) throw new Error('Tailer is too far behind') // infura only keeps 125 blocks of history on state
+      const hei = Number(await this.eth.blockNumber())
+      if (hei - this.since > 100) throw new Error('Tailer is too far behind') // infura only keeps 125 blocks of history on state
 
-      const from = '0x' + Math.max(0, self.since - 1).toString(16)
-      const balance = await self.eth.getBalance(addr, from)
+      const from = '0x' + Math.max(0, this.since - 1).toString(16)
+      const balance = await this.eth.getBalance(addr, from)
+      const startBlock = await this.tail.getBlockByNumber(from)
 
       const entry = {
-        date: Date.now(),
         blockNumber: from,
+        timestamp: startBlock.timestamp,
         initialBalance: balance
       }
 
-      await self.db.put('!addrs!' + id, entry)
+      const batch = this.db.batch()
 
-      const startBlock = await self.tail.getBlockByNumber(from)
-      await self.db.put(blockKey(from), blockHeader(startBlock))
+      await batch.put(k, entry)
+      await batch.flush()
     })
   }
 
@@ -153,63 +165,81 @@ class TxStream extends Readable {
   }
 
   _open (cb) {
-    const self = this
-    promiseCallback(this.db.get('!addrs!' + this.addr), async (err, val) => {
+    promiseCallback(this.db.get(addrKey(this.addr)), (err, val) => {
       if (err) return cb(err)
 
       const blockNumber = val.value.blockNumber
-      const block = await self.db.get(blockKey(blockNumber))
+      const timestamp = val.value.timestamp
 
-      self.push({
+      this.push({
         blockNumber,
-        value: val.value.initialBalance,
-        timestamp: block.value.timestamp
+        timestamp,
+        value: val.value.initialBalance
       })
 
-      const gt = '!tx!' + self.addr + '!'
-      const lt = '!tx!' + self.addr + '"'
+      const gt = '!tx!' + this.addr + '!'
+      const lt = '!tx!' + this.addr + '~'
 
-      let tip = 0
+      let tip = this.db.version || 0
 
-      self.stream = self.db.createReadStream({ gt, lt })
+      this.stream = this.db.createReadStream({ gt, lt })
 
-      self.stream.on('data', (data) => {
+      this.stream.on('data', (data) => {
         tip = Math.max(tip, data.seq)
-        if (!self.push(data)) self.stream.pause()
+        if (!this.push(data)) this.stream.pause()
       })
 
-      self.stream.on('end', () => {
-        if (!self.live) {
-          self.push(null) // end it now
-          self.emit('synced')
+      this.stream.on('error', (err) => {
+        this.destroy(err)
+      })
+
+      this.stream.on('end', () => {
+        if (!this.live) {
+          this.push(null) // end it now
+          this.emit('synced')
           return
         }
 
-        liveStream(tip)
+        this._liveStream(tip)
       })
 
       cb(null)
     })
+  }
 
-    function liveStream (start) {
-      self.emit('synced')
+  _liveStream (start) {
+    const self = this
 
-      self.stream = self.db.createHistoryStream({ gt: start, live: true, limit: -1 })
-      self.stream.on('data', (data) => {
-        if (!filter(data.key)) return
-        if (!self.push(data)) self.stream.pause()
-      })
-    }
+    this.emit('synced')
+
+    this.stream = this.db.createHistoryStream({ gt: start, live: true, limit: -1 })
+
+    this.stream.on('error', (err) => {
+      this.destroy(err)
+    })
+
+    this.stream.on('data', (data) => {
+      if (!filter(data.key)) return
+      if (!this.push(data)) this.stream.pause()
+    })
 
     function filter (a) {
       return a.slice(0, 46) === '!tx!' + self.addr.toLowerCase()
     }
   }
 
+  _predestroy () {
+    if (this.stream) this.stream.destroy()
+  }
+
   _destroy (cb) {
     if (this.stream) this.stream.destroy()
     cb()
   }
+}
+
+function addrKey (addr) {
+  return '!addr!' + addr.toLowerCase()
 }
 
 function txKey (tx) {

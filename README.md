@@ -1,6 +1,6 @@
 # eth-transaction-indexer
 
-Tails transactions on the Ethereum blockchain
+Tails transactions on the Ethereum blockchain and indexes them in a Hyperbee
 
 ```
 npm install @hyperdivision/eth-transaction-indexer
@@ -12,7 +12,7 @@ npm install @hyperdivision/eth-transaction-indexer
 const Indexer = require('eth-transaction-indexer')
 
 const testnet = 'https://ropsten.infura.io/v3/2aa3f1f44c224eff83b07cef6a5b48b5'
-const feed = new hypercore('./path/to/storage')
+const feed = hypercore('./path/to/storage')
 
 // start indexing from block number
 const beginAt = 0x899b00
@@ -65,7 +65,7 @@ The initial balance is inserted as a tx of the form:
 }
 ```
 
-Other transactions are full eth transaction objects: 
+Other transactions are full eth transaction objects:
 ```
 {
   blockHash: '0x277dfee78f6b1d8e495e7c25c95e0f2dc36a4ca772b32aa7b1ae7107f21d1351',

@@ -1,11 +1,11 @@
 {
   "name": "@hyperdivision/eth-transaction-indexer",
   "version": "1.0.0",
-  "description": "",
+  "description": "Tails transactions on the Ethereum blockchain and indexes them in a Hyperbee",
   "main": "index.js",
   "dependencies": {
     "@hyperdivision/eth-transaction-tail": "^4.2.1",
-    "hyperbee": "0.0.18",
+    "hyperbee": "^1.0.1",
     "nanoeth": "^2.6.0",
     "streamx": "^2.7.1",
     "thunky": "^1.1.0"
@@ -16,6 +16,6 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
-  "license": "ISC"
+  "author": "Hyperdivision",
+  "license": "MIT"
 }
