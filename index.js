@@ -4,6 +4,7 @@ const Hyperbee = require('hyperbee')
 const { Readable } = require('streamx')
 const thunky = require('thunky/promise')
 
+const BLOCKS_PER_DAY = 8192 // ish
 const promiseCallback = (p, cb) => p.then(data => cb(null, data), cb)
 
 module.exports = class EthIndexer {
@@ -20,6 +21,7 @@ module.exports = class EthIndexer {
       this.since = Math.max(await this._head(), seq)
     })
 
+    this.autoCheckpoint = BLOCKS_PER_DAY
     this.feed = feed
     this.db = new Hyperbee(this.feed, {
       valueEncoding: 'json',
@@ -27,10 +29,10 @@ module.exports = class EthIndexer {
     })
   }
 
-  createTransactionStream (addr) {
+  createTransactionStream (addr, opts) {
     const address = addr.toLowerCase()
 
-    return new TxStream(this.db, address, { live: true })
+    return new TxStream(this.db, address, { live: true, ...opts })
   }
 
   async add (addr) {
@@ -38,7 +40,7 @@ module.exports = class EthIndexer {
 
     await this.ready()
 
-    if (await this.db.get('!addrs!' + addr.toLowerCase())) return
+    if (await this.db.get(addrKey(addr))) return
 
     await this._catchup(90)
     await this._track(addr)
@@ -57,24 +59,35 @@ module.exports = class EthIndexer {
       since: self.since,
       async filter (addr) {
         const address = addr ? addr.toLowerCase() : ''
-        const node = await self.db.get('!addrs!' + address)
+        const node = await self.db.get(addrKey(address))
         return node !== null
       },
       async transaction (tx, _, block) {
         const addr = tx.to.toLowerCase()
 
-        if (!(await self.db.get('!addrs!' + addr))) return
+        if (!(await self.db.get(addrKey(addr)))) return
 
         if (!batch) batch = self.db.batch()
         await batch.put(txKey(tx), tx)
 
         const key = blockKey(block.number)
-        if (lastBlock === key) continue
+        if (lastBlock === key) return
 
         lastBlock = key
+        self.autoCheckpoint = BLOCKS_PER_DAY
+        await batch.put(key, blockHeader(block))
+      },
+      async block (block) {
+        if (--self.autoCheckpoint > 0) return
+
+        if (!batch) batch = self.db.batch()
+        const key = blockKey(block.number)
+        lastBlock = key
+        self.autoCheckpoint = BLOCKS_PER_DAY
         await batch.put(key, blockHeader(block))
       },
       async checkpoint (seq) {
+        console.log(self.autoCheckpoint, seq)
         if (batch) {
           await batch.flush()
           batch = null
@@ -89,9 +102,9 @@ module.exports = class EthIndexer {
   async _head () {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
     for await (const { value } of this.db.createHistoryStream({ reverse: true, limit: 1 })) {
-      return value.blockNumber
+      return Number(value.blockNumber || value.number)
     }
-    return this.eth.blockNumber()
+    return Number(await this.eth.blockNumber())
   }
 
   async _catchup (minBehind) {
