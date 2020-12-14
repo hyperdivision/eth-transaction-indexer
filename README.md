@@ -50,9 +50,11 @@ const opts = {
 
 Start tailing the blockchain.
 
-#### `index.add(addr)`
+#### `index.add(addr, [options])`
 
-Begin tracking transactions paying to `addr`. The initial balance of the address will be stored under the key `!addrs!<addr>`, subsequent transactions will be added under the key `!tx!<addr>!<block_number>!<tx_number>`.
+Begin tracking transactions paying to `addr`. The initial balance of the address will be stored under the key `!addr!<addr>`, subsequent transactions will be added under the key `!tx!<addr>!<block_number>!<tx_number>`.
+
+If you are tracking an ERC20 token, pass `{ token: <token-addr> }` as well.
 
 #### `const str = index.createTransactionStream(addr)`
 
