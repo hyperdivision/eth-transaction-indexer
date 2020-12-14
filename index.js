@@ -48,6 +48,7 @@ module.exports = class EthIndexer {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
     const self = this
     let batch = null
+    let lastBlock = null
 
     await this.ready()
 
@@ -66,7 +67,12 @@ module.exports = class EthIndexer {
 
         if (!batch) batch = self.db.batch()
         await batch.put(txKey(tx), tx)
-        await batch.put(blockKey(block.number), blockHeader(block))
+
+        const key = blockKey(block.number)
+        if (lastBlock === key) continue
+
+        lastBlock = key
+        await batch.put(key, blockHeader(block))
       },
       async checkpoint (seq) {
         if (batch) {
@@ -125,7 +131,6 @@ module.exports = class EthIndexer {
       const batch = this.db.batch()
 
       await batch.put(k, entry)
-      await batch.put(blockKey(from), blockHeader(startBlock))
       await batch.flush()
     })
   }
