@@ -1,6 +1,6 @@
 {
   "name": "@hyperdivision/eth-transaction-indexer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Tails transactions on the Ethereum blockchain and indexes them in a Hyperbee",
   "main": "index.js",
   "dependencies": {
