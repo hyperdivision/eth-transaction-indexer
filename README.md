@@ -42,10 +42,11 @@ Instantiate a new index. Transactions of interest are logged in a Hyperbee writt
 ```js
 const opts = {
   endpoint: 'http://...',  // chain backend API
+  defaultSeq: 9259777 // start from here if nothing has been stored. defaults to latest
 }
 ```
 
-#### `index.start([defaultSeq])`
+#### `index.start()`
 
 Start tailing the blockchain.
 

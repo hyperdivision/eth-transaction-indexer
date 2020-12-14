@@ -5,12 +5,14 @@ const { Readable } = require('streamx')
 const thunky = require('thunky/promise')
 
 const BLOCKS_PER_DAY = 8192 // ish
+const BALANCE_OF = '0x70a08231'
 const promiseCallback = (p, cb) => p.then(data => cb(null, data), cb)
 
 module.exports = class EthIndexer {
   constructor (feed, opts = {}) {
-    this.since = null
+    this.since = opts.since || null
     this.live = !!opts.endpoint
+    this.confirmations = opts.confirmations
 
     this.tail = null
     this.eth = this.live ? new Nanoeth(opts.endpoint) : null
@@ -35,7 +37,7 @@ module.exports = class EthIndexer {
     return new TxStream(this.db, address, { live: true, ...opts })
   }
 
-  async add (addr) {
+  async add (addr, opts) {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
 
     await this.ready()
@@ -43,7 +45,7 @@ module.exports = class EthIndexer {
     if (await this.db.get(addrKey(addr))) return
 
     await this._catchup(90)
-    await this._track(addr)
+    await this._track(addr, opts)
   }
 
   async start () {
@@ -54,13 +56,38 @@ module.exports = class EthIndexer {
 
     await this.ready()
 
+    function storeBlock (block) {
+      if (!batch) batch = self.db.batch()
+      const key = blockKey(block.number)
+      if (lastBlock === key) return
+      lastBlock = key
+      self.autoCheckpoint = BLOCKS_PER_DAY
+      return batch.put(key, blockHeader(block))
+    }
+
     this.tail = new Tail(null, {
       eth: self.eth,
       since: self.since,
+      confirmations: self.confirmations,
       async filter (addr) {
         const address = addr ? addr.toLowerCase() : ''
         const node = await self.db.get(addrKey(address))
         return node !== null
+      },
+      async erc20 (event, tx, _, block, log) {
+        const data = {
+          type: 'erc20',
+          timestamp: block.timestamp,
+          token: event.token,
+          blockNumber: block.number,
+          from: event.from,
+          to: event.to,
+          value: '0x' + BigInt(event.amount).toString(16)
+        }
+
+        if (!batch) batch = self.db.batch()
+        await batch.put(erc20Key(data.to, log), data)
+        await storeBlock(block)
       },
       async transaction (tx, _, block) {
         const addr = tx.to.toLowerCase()
@@ -68,26 +95,14 @@ module.exports = class EthIndexer {
         if (!(await self.db.get(addrKey(addr)))) return
 
         if (!batch) batch = self.db.batch()
-        await batch.put(txKey(tx), tx)
-
-        const key = blockKey(block.number)
-        if (lastBlock === key) return
-
-        lastBlock = key
-        self.autoCheckpoint = BLOCKS_PER_DAY
-        await batch.put(key, blockHeader(block))
+        await batch.put(txKey(tx), { type: 'eth', timestamp: block.timestamp, ...tx })
+        await storeBlock(block)
       },
       async block (block) {
         if (--self.autoCheckpoint > 0) return
-
-        if (!batch) batch = self.db.batch()
-        const key = blockKey(block.number)
-        lastBlock = key
-        self.autoCheckpoint = BLOCKS_PER_DAY
-        await batch.put(key, blockHeader(block))
+        await storeBlock(block)
       },
       async checkpoint (seq) {
-        console.log(self.autoCheckpoint, seq)
         if (batch) {
           await batch.flush()
           batch = null
@@ -102,9 +117,9 @@ module.exports = class EthIndexer {
   async _head () {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
     for await (const { value } of this.db.createHistoryStream({ reverse: true, limit: 1 })) {
-      return Number(value.blockNumber || value.number)
+      return Number(value.blockNumber || value.number) + 1
     }
-    return Number(await this.eth.blockNumber())
+    return this.since || Number(await this.eth.blockNumber())
   }
 
   async _catchup (minBehind) {
@@ -112,13 +127,14 @@ module.exports = class EthIndexer {
     if (this.since === null) throw new Error('Tailer has not started')
 
     let tip = Number(await this.eth.blockNumber())
+
     while (tip - this.since > minBehind) {
       await sleep(1000)
       tip = Number(await this.eth.blockNumber())
     }
   }
 
-  async _track (addr) {
+  async _track (addr, opts) {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
 
     const k = addrKey(addr)
@@ -128,16 +144,18 @@ module.exports = class EthIndexer {
     return this.tail.wait(async () => {
       if (await this.db.get(k)) return
 
+      const token = opts && opts.token || null
       const hei = Number(await this.eth.blockNumber())
       if (hei - this.since > 100) throw new Error('Tailer is too far behind') // infura only keeps 125 blocks of history on state
 
       const from = '0x' + Math.max(0, this.since - 1).toString(16)
-      const balance = await this.eth.getBalance(addr, from)
+      const balance = token ? await erc20balance(this.eth, addr, token, from) : await this.eth.getBalance(addr, from)
       const startBlock = await this.tail.getBlockByNumber(from)
 
       const entry = {
-        blockNumber: from,
+        token,
         timestamp: startBlock.timestamp,
+        blockNumber: from,
         initialBalance: balance
       }
 
@@ -180,11 +198,14 @@ class TxStream extends Readable {
   _open (cb) {
     promiseCallback(this.db.get(addrKey(this.addr)), (err, val) => {
       if (err) return cb(err)
+      if (!val) return cb(new Error('Address not tracked'))
 
       const blockNumber = val.value.blockNumber
       const timestamp = val.value.timestamp
 
       this.push({
+        type: 'balance',
+        token: val.value.token,
         blockNumber,
         timestamp,
         value: val.value.initialBalance
@@ -193,7 +214,7 @@ class TxStream extends Readable {
       const gt = '!tx!' + this.addr + '!'
       const lt = '!tx!' + this.addr + '~'
 
-      let tip = this.db.version || 0
+      let tip = this.db.version ? this.db.version - 1 : 0
 
       this.stream = this.db.createReadStream({ gt, lt })
 
@@ -224,7 +245,6 @@ class TxStream extends Readable {
     const self = this
 
     this.emit('synced')
-
     this.stream = this.db.createHistoryStream({ gt: start, live: true, limit: -1 })
 
     this.stream.on('error', (err) => {
@@ -251,8 +271,19 @@ class TxStream extends Readable {
   }
 }
 
+async function erc20balance (eth, addr, token, from) {
+  return '0x' + BigInt(await eth.call({
+    to: token,
+    data: BALANCE_OF + addr.slice(2).padStart(64, '0').toLowerCase()
+  }, from)).toString(16)
+}
+
 function addrKey (addr) {
   return '!addr!' + addr.toLowerCase()
+}
+
+function erc20Key (to, log) {
+  return '!tx!' + to.toLowerCase() + '!' + padBlockNumber(log.blockNumber) + '!' + padTxNumber(log.transactionIndex) + '!' + padTxNumber(log.logIndex)
 }
 
 function txKey (tx) {
