@@ -17,7 +17,8 @@ index.add(to).then(() => {
 })
 */
 
-index.add('0x61bafa4a54f236289f0605cf4917ad92117a4780', { token: '0x101848d5c5bbca18e6b4431eedf6b95e9adf82fa' }).then(function () {
-  const str = index.createTransactionStream('0x61bafa4a54f236289f0605cf4917ad92117a4780', { live: true })
+const token = '0x101848d5c5bbca18e6b4431eedf6b95e9adf82fa'
+index.add('0x61bafa4a54f236289f0605cf4917ad92117a4780', { token }).then(function () {
+  const str = index.createTransactionStream('0x61bafa4a54f236289f0605cf4917ad92117a4780', { live: true, token })
   str.on('data', d => { console.log('2: -- data --', d) })
 })

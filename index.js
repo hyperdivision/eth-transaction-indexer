@@ -6,6 +6,7 @@ const thunky = require('thunky/promise')
 
 const BLOCKS_PER_DAY = 8192 // ish
 const BALANCE_OF = '0x70a08231'
+const MAX_ADDR = '0xffffffffffffffffffffffffffffffffffffffff'
 const promiseCallback = (p, cb) => p.then(data => cb(null, data), cb)
 
 module.exports = class EthIndexer {
@@ -33,9 +34,7 @@ module.exports = class EthIndexer {
   }
 
   createTransactionStream (addr, opts) {
-    const address = addr.toLowerCase()
-
-    return new TxStream(this.db, address, { live: true, ...opts })
+    return new TxStream(this.db, addr, { live: true, ...opts })
   }
 
   async add (addr, opts) {
@@ -43,7 +42,7 @@ module.exports = class EthIndexer {
 
     await this.ready()
 
-    if (await this.db.get(addrKey(addr))) return
+    if (await this.db.get(addrKey(addr, opts && opts.token))) return
 
     await this._catchup(90)
     await this._track(addr, opts)
@@ -78,7 +77,7 @@ module.exports = class EthIndexer {
       confirmations: self.confirmations,
       async filter (addr) {
         const address = addr ? addr.toLowerCase() : ''
-        const node = await self.db.get(addrKey(address))
+        const node = await self.db.peek({ gte: addrKey(address, null), lt: addrKey(address, MAX_ADDR) })
         return node !== null
       },
       async erc20 (event, tx, _, block, log) {
@@ -91,15 +90,18 @@ module.exports = class EthIndexer {
           to: event.to,
           value: '0x' + BigInt(event.amount).toString(16)
         }
+        const addr = event.to.toLowerCase()
+
+        if (!(await self.db.get(addrKey(addr, event.token)))) return
 
         if (!batch) batch = self.db.batch()
-        await batch.put(erc20Key(data.to, log), data)
+        await batch.put(erc20Key(addr, event.token, log), data)
         await storeBlock(block)
       },
       async transaction (tx, _, block) {
         const addr = tx.to.toLowerCase()
 
-        if (!(await self.db.get(addrKey(addr)))) return
+        if (!(await self.db.get(addrKey(addr, null)))) return
 
         if (!batch) batch = self.db.batch()
         await batch.put(txKey(tx), { type: 'eth', timestamp: block.timestamp, ...tx })
@@ -144,14 +146,14 @@ module.exports = class EthIndexer {
   async _track (addr, opts) {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
 
-    const k = addrKey(addr)
+    const k = addrKey(addr, opts && opts.token)
 
     await this.ready()
 
     return this.tail.wait(async () => {
       if (await this.db.get(k)) return
 
-      const token = opts && opts.token || null
+      const token = (opts && opts.token) || null
       const hei = Number(await this.eth.blockNumber())
       if (hei - this.since > 100) throw new Error('Tailer is too far behind') // infura only keeps 125 blocks of history on state
 
@@ -192,9 +194,10 @@ class TxStream extends Readable {
     super()
 
     this.live = opts.live
-    this.addr = addr
+    this.addr = addr.toLowerCase()
     this.db = db
     this.live = !!opts.live
+    this.token = (opts.token || '').toLowerCase()
   }
 
   _read (cb) {
@@ -203,7 +206,7 @@ class TxStream extends Readable {
   }
 
   _open (cb) {
-    promiseCallback(this.db.get(addrKey(this.addr)), (err, val) => {
+    promiseCallback(this.db.get(addrKey(this.addr, this.token)), (err, val) => {
       if (err) return cb(err)
       if (!val) return cb(new Error('Address not tracked'))
 
@@ -218,8 +221,8 @@ class TxStream extends Readable {
         value: val.value.initialBalance
       })
 
-      const gt = '!tx!' + this.addr + '!'
-      const lt = '!tx!' + this.addr + '~'
+      const gt = '!tx!' + this.addr + '!' + this.token + '!'
+      const lt = '!tx!' + this.addr + '!' + this.token + '!~'
 
       let tip = this.db.version ? this.db.version - 1 : 0
 
@@ -250,6 +253,7 @@ class TxStream extends Readable {
 
   _liveStream (start) {
     const self = this
+    const prefix = '!tx!' + self.addr + '!' + self.token + '!'
 
     this.emit('synced')
     this.stream = this.db.createHistoryStream({ gt: start, live: true, limit: -1 })
@@ -264,7 +268,7 @@ class TxStream extends Readable {
     })
 
     function filter (a) {
-      return a.slice(0, 46) === '!tx!' + self.addr.toLowerCase()
+      return a.slice(0, prefix.length) === prefix
     }
   }
 
@@ -285,16 +289,16 @@ async function erc20balance (eth, addr, token, from) {
   }, from)).toString(16)
 }
 
-function addrKey (addr) {
-  return '!addr!' + addr.toLowerCase()
+function addrKey (addr, token) {
+  return '!addr!' + addr.toLowerCase() + '!' + (token || '').toLowerCase()
 }
 
-function erc20Key (to, log) {
-  return '!tx!' + to.toLowerCase() + '!' + padBlockNumber(log.blockNumber) + '!' + padTxNumber(log.transactionIndex) + '!' + padTxNumber(log.logIndex)
+function erc20Key (to, token, log) {
+  return '!tx!' + to.toLowerCase() + '!' + token.toLowerCase() + '!' + padBlockNumber(log.blockNumber) + '!' + padTxNumber(log.transactionIndex) + '!' + padTxNumber(log.logIndex)
 }
 
 function txKey (tx) {
-  return '!tx!' + tx.to.toLowerCase() + '!' + padBlockNumber(tx.blockNumber) + '!' + padTxNumber(tx.transactionIndex)
+  return '!tx!' + tx.to.toLowerCase() + '!!' + padBlockNumber(tx.blockNumber) + '!' + padTxNumber(tx.transactionIndex)
 }
 
 function blockKey (seq) {
