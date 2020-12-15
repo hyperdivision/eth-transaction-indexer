@@ -227,7 +227,7 @@ class TxStream extends Readable {
 
       this.stream.on('data', (data) => {
         tip = Math.max(tip, data.seq)
-        if (!this.push(data)) this.stream.pause()
+        if (!this.push(data.value)) this.stream.pause()
       })
 
       this.stream.on('error', (err) => {
@@ -260,7 +260,7 @@ class TxStream extends Readable {
 
     this.stream.on('data', (data) => {
       if (!filter(data.key)) return
-      if (!this.push(data)) this.stream.pause()
+      if (!this.push(data.value)) this.stream.pause()
     })
 
     function filter (a) {
