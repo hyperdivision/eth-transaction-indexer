@@ -13,6 +13,7 @@ module.exports = class EthIndexer {
     this.since = opts.since || null
     this.live = !!opts.endpoint
     this.confirmations = opts.confirmations
+    this.started = null
 
     this.tail = null
     this.eth = this.live ? new Nanoeth(opts.endpoint) : null
@@ -48,7 +49,13 @@ module.exports = class EthIndexer {
     await this._track(addr, opts)
   }
 
-  async start () {
+  start () {
+    if (this.started) return this.started
+    this.started = this._start()
+    return this.started
+  }
+
+  async _start () {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
     const self = this
     let batch = null
