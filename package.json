@@ -4,7 +4,7 @@
   "description": "Tails transactions on the Ethereum blockchain and indexes them in a Hyperbee",
   "main": "index.js",
   "dependencies": {
-    "@hyperdivision/eth-transaction-tail": "^4.2.1",
+    "@hyperdivision/eth-transaction-tail": "^4.3.1",
     "hyperbee": "^1.0.1",
     "nanoeth": "^2.6.0",
     "streamx": "^2.7.1",

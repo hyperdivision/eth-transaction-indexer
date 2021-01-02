@@ -15,6 +15,7 @@ module.exports = class EthIndexer {
     this.live = !!opts.endpoint
     this.confirmations = opts.confirmations
     this.started = null
+    this.pollTime = opts.pollTime || 1000
 
     this.tail = null
     this.eth = this.live ? new Nanoeth(opts.endpoint) : null
@@ -75,6 +76,7 @@ module.exports = class EthIndexer {
       eth: self.eth,
       since: self.since,
       confirmations: self.confirmations,
+      pollTime: self.pollTime || 1000,
       async filter (addr) {
         const address = addr ? addr.toLowerCase() : ''
         const node = await self.db.peek({ gte: addrKey(address, null), lt: addrKey(address, MAX_ADDR) })
