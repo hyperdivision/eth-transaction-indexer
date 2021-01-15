@@ -16,6 +16,7 @@ module.exports = class EthIndexer {
     this.confirmations = opts.confirmations
     this.started = null
     this.pollTime = opts.pollTime || 1000
+    this.fastForward = !!opts.fastForward
 
     this.tail = null
     this.eth = this.live ? new Nanoeth(opts.endpoint) : null
@@ -128,7 +129,9 @@ module.exports = class EthIndexer {
   async _head () {
     if (!this.live) throw new Error('Replicated index cannot access live methods')
     for await (const { value } of this.db.createHistoryStream({ reverse: true, limit: 1 })) {
-      return Number(value.blockNumber || value.number) + 1
+      const latest = Number(value.blockNumber || value.number) + 1
+      const head = this.fastForward ? Number(await this.eth.blockNumber()) : latest
+      return head - latest > BLOCKS_PER_DAY ? head : latest
     }
     return this.since || Number(await this.eth.blockNumber())
   }
